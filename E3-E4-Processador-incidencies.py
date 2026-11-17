@@ -7,10 +7,11 @@ Processa incidencies.xml, mostra estadístiques per pantalla i genera un informe
   python3 ProcessarIncidencies.py altre.xml
   python3 ProcessarIncidencies.py --no-color       # sense colors al terminal
   python3 ProcessarIncidencies.py --html=sortida.html   # nom de l'informe HTML
-  python3 ProcessarIncidencies.py --no-obrir       # no obre l'informe al navegador
+  python3 ProcessarIncidencies.py --no-obrir       # no pregunta si s'obre el navegador
   python3 ProcessarIncidencies.py --json-mode=afegir         # si el JSON ja existeix, no pregunta
   python3 ProcessarIncidencies.py --json-mode=sobreescriure
   python3 ProcessarIncidencies.py --json=altre.json          # nom del fitxer JSON
+  python3 ProcessarIncidencies.py --url=https://usuari.github.io/repo/   # URL pública per al QR
   python3 ProcessarIncidencies.py --debug          # en cas d'error inesperat, mostra el traceback
 
 Passos:
@@ -20,6 +21,7 @@ Passos:
   4. CÀLCUL: calcular totes les estadístiques en un diccionari.
   5. PRESENTACIÓ: mostrar-les pel terminal i escriure-les en un informe HTML.
   6. Desar les incidències vàlides (amb un ID) i un resum a incidencies.json.
+  7. Preguntar si s'obre l'informe al navegador i generar un QR amb la URL pública (GitHub Pages).
 """
 import errno
 import functools
@@ -40,9 +42,14 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 FITXER = "incidencies.xml"
-FITXER_HTML = "informe_incidencies.html"
+FITXER_HTML = "index.html"
 FITXER_JSON = "incidencies.json"
+FITXER_QR = "qr_informe.svg"
 MODES_JSON = ("sobreescriure", "afegir")
+
+# URL pública de l'informe a GitHub Pages: https://USUARI.github.io/REPOSITORI/FITXER.html
+# (també es pot passar per la línia d'ordres amb --url=...)
+URL_PAGES = "https://grup07-asixcb.github.io/ta04/"
 
 # Si la detecció automàtica s'equivoca, posa aquí el nom de l'etiqueta XML correcta.
 # Exemple: CAMPS = {"data": "Data_de_lincidència", "dispositiu": "Quin_dispositiu_afecta"}
@@ -1063,33 +1070,8 @@ def desar_json(valides, rols, font, ruta, mode=None):
 
 
 # ---------------------------------------------------------------------------
-# Programa principal
+# 7. Navegador i codi QR
 # ---------------------------------------------------------------------------
-OPCIONS_SIMPLES = {"--no-color", "--no-obrir", "--debug"}
-OPCIONS_AMB_VALOR = {"--html", "--json", "--json-mode"}
-
-
-def opcio(nom, defecte=None):
-    """Valor d'una opció --nom=valor de la línia d'ordres."""
-    return next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith(f"--{nom}=")), defecte)
-
-
-def comprovar_arguments():
-    """Atura el programa amb un missatge clar si hi ha opcions desconegudes o mal escrites."""
-    fitxers = []
-    for a in sys.argv[1:]:
-        if not a.startswith("--"):
-            fitxers.append(a)
-        elif a.split("=", 1)[0] in OPCIONS_AMB_VALOR:
-            if "=" not in a or not a.split("=", 1)[1].strip():
-                sys.exit(f"L'opció {a.split('=', 1)[0]} necessita un valor (p. ex. {a.split('=', 1)[0]}=valor).")
-        elif a not in OPCIONS_SIMPLES:
-            valides = ", ".join(sorted(OPCIONS_SIMPLES) + [o + "=..." for o in sorted(OPCIONS_AMB_VALOR)])
-            sys.exit(f"Opció desconeguda: {a}\nOpcions vàlides: {valides}")
-    if len(fitxers) > 1:
-        sys.exit(f"Només es pot indicar un fitxer XML (n'has posat {len(fitxers)}: {', '.join(fitxers)}).")
-
-
 def hi_ha_entorn_grafic():
     """A Linux/BSD sense DISPLAY ni WAYLAND_DISPLAY (servidor, SSH...) webbrowser podria engegar un
     navegador de text (lynx, w3m...) que ocuparia el terminal: en aquest cas no s'obre res."""
@@ -1112,6 +1094,75 @@ def obrir_navegador(ruta):
         print(col("  S'ha obert al navegador.", GRIS))
     else:
         print(col("  No s'ha pogut obrir el navegador; obre el fitxer manualment.", GRIS))
+
+
+def preguntar_obrir(ruta):
+    """Pregunta si s'ha d'obrir l'informe al navegador (només si hi ha terminal interactiu)."""
+    if not es_terminal(sys.stdin):
+        return
+    if preguntar("  Vols obrir l'informe al navegador? [S] Sí  [N] No: ", ["S", "N"]) == "S":
+        obrir_navegador(ruta)
+
+
+def generar_qr(url, ruta_svg=FITXER_QR):
+    """Mostra al terminal un QR de la URL pública i el desa com a SVG."""
+    if not url or "EL_TEU_USUARI" in url:
+        print(col("  QR no generat: configura URL_PAGES al codi o fes servir --url=...", GRIS))
+        return None
+    if not url.startswith(("http://", "https://")):
+        error(f"La URL del QR ha de començar per http:// o https:// (has posat '{url}').")
+        return None
+    try:
+        import qrcode
+        import qrcode.image.svg
+    except ImportError:
+        error("Per generar el QR cal instal·lar la llibreria: pip install qrcode")
+        return None
+
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, border=2)
+    qr.add_data(url)
+    qr.make(fit=True)
+
+    print(col("\n  QR de l'informe públic:", NEGRETA, VERD))
+    print(f"  {url}\n")
+    qr.print_ascii(invert=True)      # si al terminal es veu al revés, prova invert=False
+
+    ruta = Path(ruta_svg).resolve()
+    try:
+        qr.make_image(image_factory=qrcode.image.svg.SvgPathImage).save(str(ruta))
+    except OSError as e:
+        error(f"No s'ha pogut desar el QR. {descriure_error(e, ruta)}.")
+        return None
+    print(col(f"  QR desat a: {ruta}", NEGRETA, VERD))
+    return ruta
+
+
+# ---------------------------------------------------------------------------
+# Programa principal
+# ---------------------------------------------------------------------------
+OPCIONS_SIMPLES = {"--no-color", "--no-obrir", "--debug"}
+OPCIONS_AMB_VALOR = {"--html", "--json", "--json-mode", "--url"}
+
+
+def opcio(nom, defecte=None):
+    """Valor d'una opció --nom=valor de la línia d'ordres."""
+    return next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith(f"--{nom}=")), defecte)
+
+
+def comprovar_arguments():
+    """Atura el programa amb un missatge clar si hi ha opcions desconegudes o mal escrites."""
+    fitxers = []
+    for a in sys.argv[1:]:
+        if not a.startswith("--"):
+            fitxers.append(a)
+        elif a.split("=", 1)[0] in OPCIONS_AMB_VALOR:
+            if "=" not in a or not a.split("=", 1)[1].strip():
+                sys.exit(f"L'opció {a.split('=', 1)[0]} necessita un valor (p. ex. {a.split('=', 1)[0]}=valor).")
+        elif a not in OPCIONS_SIMPLES:
+            valides = ", ".join(sorted(OPCIONS_SIMPLES) + [o + "=..." for o in sorted(OPCIONS_AMB_VALOR)])
+            sys.exit(f"Opció desconeguda: {a}\nOpcions vàlides: {valides}")
+    if len(fitxers) > 1:
+        sys.exit(f"Només es pot indicar un fitxer XML (n'has posat {len(fitxers)}: {', '.join(fitxers)}).")
 
 
 def main():
@@ -1147,7 +1198,9 @@ def main():
     json_correcte = desar_json(valides, rols, fitxer, fitxer_json, mode_json)
 
     if sortida and "--no-obrir" not in sys.argv:
-        obrir_navegador(sortida)
+        preguntar_obrir(sortida)
+    generar_qr(opcio("url", URL_PAGES))
+
     print()
     if not (sortida and json_correcte):
         sys.exit(1)

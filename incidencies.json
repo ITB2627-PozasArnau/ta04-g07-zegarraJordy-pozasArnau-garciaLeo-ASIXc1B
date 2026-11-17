@@ -1,5 +1,5 @@
 {
-  "generat": "2026-11-13T11:31:09",
+  "generat": "2026-11-13T12:22:07",
   "font": "incidencies.xml",
   "total_incidencies": 4409,
   "estadistiques": {
@@ -136,7 +136,7 @@
       "El dia de la setmana amb més incidències és el dilluns."
     ]
   },
-  "incidencies": [
+0  "incidencies": [
     {
       "id": "INC-ed985081ba9a",
       "Marca_temporal": "2026-10-27T10:38:30",
