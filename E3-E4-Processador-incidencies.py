@@ -25,7 +25,6 @@ Passos:
 """
 import errno
 import functools
-import hashlib
 import html
 import json
 import math
@@ -289,26 +288,8 @@ def filtrar(registres, rols):
             motius["Duplicada"] += 1
             continue
         vistos.add(clau)
-        r["_id"] = id_incidencia(r, clau)
         valides.append(r)
     return valides, motius
-
-
-def id_incidencia(r, clau):
-    """ID estable de la incidència.
-
-    Si l'XML porta l'atribut "id", es fa servir tal qual. Si no, es calcula una
-    empremta (SHA-1) del mateix contingut normalitzat que serveix per detectar
-    duplicats (tots els camps menys la marca temporal). Així:
-      - el mateix XML processat dues vegades dona els mateixos IDs (mode Afegir no repeteix res);
-      - no depèn de la posició al fitxer (si s'afegeixen files a l'XML, els IDs no canvien);
-      - és coherent amb el filtre de duplicats: dues incidències amb el mateix ID
-        serien també duplicades.
-    """
-    if r.get("id"):
-        return str(r["id"])
-    empremta = hashlib.sha1(json.dumps(clau, ensure_ascii=False).encode("utf-8")).hexdigest()
-    return "INC-" + empremta[:12]
 
 
 # ---------------------------------------------------------------------------
@@ -862,8 +843,9 @@ def marca_temporal_iso(text):
 
 
 def incidencia_json(r, rols):
-    """Converteix un registre vàlid en un dict serialitzable: amb ID, dates ISO i sense camps interns."""
-    inc = {"id": r["_id"]}
+    """Converteix un registre vàlid en un dict serialitzable: dates ISO i sense camps interns.
+    L'ID numèric s'assigna després, a desar_json."""
+    inc = {}
     for k, v in r.items():
         if k.startswith("_") or k == "id":
             continue
@@ -1003,6 +985,18 @@ def escriure_json_segur(ruta, dades):
     escriure_fitxer_segur(ruta, json.dumps(dades, ensure_ascii=False, indent=2) + "\n")
 
 
+def clau_contingut(inc, camp_ts):
+    """Contingut normalitzat d'una incidència (sense ID ni marca temporal): serveix per saber
+    si dues incidències són la mateixa encara que tinguin IDs diferents."""
+    return tuple(sorted((k, norm(v)) for k, v in inc.items() if k not in ("id", camp_ts)))
+
+
+def ultim_id(incidencies):
+    """Número d'ID més alt (0 si no n'hi ha cap). Ignora IDs que no siguin numèrics."""
+    numeros = [int(i["id"]) for i in incidencies if str(i["id"]).isdigit()]
+    return max(numeros, default=0)
+
+
 def desar_json(valides, rols, font, ruta, mode=None):
     """Desa les incidències vàlides a `ruta`. mode: None (preguntar), 'sobreescriure' o 'afegir'.
     Retorna False només si hi ha hagut un error (cancel·lar no és un error)."""
@@ -1038,8 +1032,17 @@ def desar_json(valides, rols, font, ruta, mode=None):
             if font not in fonts:
                 fonts.append(font)
 
-    ids = {str(i["id"]) for i in existents}
-    afegides = [i for i in noves if str(i["id"]) not in ids]
+    # Les incidències noves que ja hi eren (mateix contingut) s'ignoren; la resta rep
+    # un ID numèric consecutiu: 1, 2, 3... (en mode afegir, continua a partir de l'últim).
+    camp_ts = rols.get("timestamp")
+    ja_hi_son = {clau_contingut(i, camp_ts) for i in existents}
+    afegides = []
+    for i in noves:
+        clau = clau_contingut(i, camp_ts)
+        if clau not in ja_hi_son:
+            ja_hi_son.add(clau)
+            afegides.append(i)
+    afegides = [{"id": n, **i} for n, i in enumerate(afegides, start=ultim_id(existents) + 1)]
     totes = existents + afegides
 
     dades = {
@@ -1062,7 +1065,7 @@ def desar_json(valides, rols, font, ruta, mode=None):
         print(col(f"  JSON actualitzat: {ruta_abs}", NEGRETA, VERD))
         print(f"      · Hi havia:                 {len(existents):>6}")
         print(f"      · Afegides:                 {len(afegides):>6}")
-        print(f"      · Ignorades (ID repetit):   {len(noves) - len(afegides):>6}")
+        print(f"      · Ignorades (ja existien):  {len(noves) - len(afegides):>6}")
         print(f"      · Total ara:                {len(totes):>6}")
     else:
         print(col(f"  JSON sobreescrit: {ruta_abs} ({len(totes)} incidències)", NEGRETA, VERD))
