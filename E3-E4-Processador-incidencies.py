@@ -49,7 +49,7 @@ MODES_JSON = ("sobreescriure", "afegir")
 
 # URL pública de l'informe a GitHub Pages: https://USUARI.github.io/REPOSITORI/FITXER.html
 # (també es pot passar per la línia d'ordres amb --url=...)
-URL_PAGES = "https://grup07-asixcb.github.io/ta04/"
+URL_PAGES = "https://itb2627-pozasarnau.github.io/ta04-g07-zegarraJordy-pozasArnau-garciaLeo-ASIXc1B/"
 
 # Si la detecció automàtica s'equivoca, posa aquí el nom de l'etiqueta XML correcta.
 # Exemple: CAMPS = {"data": "Data_de_lincidència", "dispositiu": "Quin_dispositiu_afecta"}
